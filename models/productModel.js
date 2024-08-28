@@ -9,6 +9,10 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  description2: {
+    type: String,
+    required: false,
+  },
   category: {
     type: String,
     required: true,
@@ -17,12 +21,11 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
-  colors: [
-    {
-      type: String,
-      enum: ["White", "Black"],
-    },
-  ],
+  condition: {
+    type: String,
+    enum: ["new", "used"],
+    required: true,
+  },
   price: {
     type: Number,
     required: true,
@@ -30,6 +33,14 @@ const productSchema = new mongoose.Schema({
   bestseller: {
     type: Boolean,
     default: false,
+  },
+  quantityUsedInStock: {
+    type: Number,
+    default: 0,
+  },
+  quantityUsedInStore: {
+    type: Number,
+    default: 0,
   },
   inStore: {
     type: Boolean,
@@ -47,7 +58,14 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
-  image: { type: Array, required: true },
+  eanCode: {
+    type: String,
+    required: false,
+  },
+  image: {
+    type: Array,
+    required: true,
+  },
 });
 
 const productModel =
