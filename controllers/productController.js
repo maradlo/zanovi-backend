@@ -1,5 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
+import buybackModel from "../models/buybackModel.js";
+import warehouseModel from "../models/warehouseModel.js";
 import mongoose from "mongoose";
 
 // function for add product
@@ -9,18 +11,13 @@ const addProduct = async (req, res) => {
       name,
       description,
       description2,
-      price,
       category,
       subCategory,
-      bestseller,
-      inStore,
-      inStock,
-      quantityInStore,
-      quantityInStock,
-      quantityUsedInStore,
-      quantityUsedInStock,
-      eanCode,
       condition,
+      price,
+      eanCode,
+      serialNumber,
+      productClass,
     } = req.body;
 
     const images = ["image1", "image2", "image3", "image4"]
@@ -36,33 +33,36 @@ const addProduct = async (req, res) => {
       })
     );
 
-    const productData = {
+    const product = new productModel({
       name,
       description,
       description2,
       category,
-      price: Number(price),
       subCategory,
-      bestseller: bestseller === "true",
       condition,
-      inStore: inStore === "true",
-      inStock: inStock === "true",
-      quantityInStore: Number(quantityInStore),
-      quantityInStock: Number(quantityInStock),
-      quantityUsedInStore: Number(quantityUsedInStore),
-      quantityUsedInStock: Number(quantityUsedInStock),
+      price,
       eanCode,
+      serialNumber,
+      class: productClass,
       image: imagesUrl,
       date: Date.now(),
-    };
+    });
 
-    const product = new productModel(productData);
+    await product.save();
+
+    const warehouse = new warehouseModel({
+      product: product._id,
+    });
+
+    await warehouse.save();
+
+    product.warehouse = warehouse._id;
     await product.save();
 
     res.json({ success: true, message: "Produkt pridaný" });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -73,18 +73,16 @@ const updateProduct = async (req, res) => {
       name,
       description,
       description2,
-      price,
       category,
       subCategory,
-      bestseller,
-      inStore,
-      inStock,
-      quantityInStore,
-      quantityInStock,
-      quantityUsedInStore,
-      quantityUsedInStock,
-      eanCode,
+      price,
       condition,
+      eanCode,
+      serialNumber,
+      productClass,
+      quantityInStock,
+      quantityInStore,
+      warehousePrice, // expecting price object with new and used prices
     } = req.body;
 
     const images = ["image1", "image2", "image3", "image4"]
@@ -108,17 +106,12 @@ const updateProduct = async (req, res) => {
       description,
       description2,
       category,
-      price: Number(price),
       subCategory,
-      bestseller: bestseller === "true",
+      price,
       condition,
-      inStore: inStore === "true",
-      inStock: inStock === "true",
-      quantityInStore: Number(quantityInStore),
-      quantityInStock: Number(quantityInStock),
-      quantityUsedInStore: Number(quantityUsedInStore),
-      quantityUsedInStock: Number(quantityUsedInStock),
       eanCode,
+      serialNumber,
+      class: productClass,
       ...(imagesUrl && { image: imagesUrl }),
     };
 
@@ -132,6 +125,25 @@ const updateProduct = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Produkt sa nenašiel" });
+    }
+
+    if (quantityInStock || quantityInStore || warehousePrice) {
+      const warehouseEntry = await warehouseModel.findOneAndUpdate(
+        { product: id },
+        {
+          $set: {
+            quantityInStock,
+            quantityInStore,
+            price: warehousePrice,
+          },
+        },
+        { new: true }
+      );
+      if (!warehouseEntry) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Warehouse entry not found" });
+      }
     }
 
     res.json({
@@ -148,11 +160,18 @@ const updateProduct = async (req, res) => {
 // function for list product
 const listProducts = async (req, res) => {
   try {
-    const products = await productModel.find({});
+    const products = await productModel
+      .find({})
+      .populate({
+        path: "warehouse",
+        select: "quantityInStock quantityInStore price", // Include the price
+      })
+      .lean();
+
     res.json({ success: true, products });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -179,7 +198,11 @@ const singleProduct = async (req, res) => {
         .json({ success: false, message: "Nesprávne ID produktu" });
     }
 
-    const product = await productModel.findById(id);
+    const product = await productModel.findById(id).populate({
+      path: "warehouse",
+      select: "quantityInStock quantityInStore price",
+    });
+
     if (!product) {
       return res
         .status(404)
@@ -193,10 +216,109 @@ const singleProduct = async (req, res) => {
   }
 };
 
+const updateProductWarehouseDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      inStock,
+      inStore,
+      documents,
+      quantityInStock,
+      quantityInStore,
+      price,
+    } = req.body;
+
+    // Ensure the product ID is valid
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
+    // Find the warehouse entry for this product
+    let warehouseEntry = await warehouseModel.findOne({ product: id });
+
+    if (!warehouseEntry) {
+      // If the entry does not exist, create a new one
+      warehouseEntry = new warehouseModel({
+        product: id,
+        quantityInStock,
+        quantityInStore,
+        price, // include the price
+        documents,
+      });
+    } else {
+      // Update the existing entry
+      warehouseEntry.quantityInStock = quantityInStock;
+      warehouseEntry.quantityInStore = quantityInStore;
+      warehouseEntry.price = price; // update the price
+      warehouseEntry.documents = documents;
+    }
+
+    // Save the warehouse entry
+    await warehouseEntry.save();
+
+    res.json({
+      success: true,
+      message: "Product warehouse details updated successfully",
+      warehouseEntry,
+    });
+  } catch (error) {
+    console.error("Error updating product warehouse details:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const searchProducts = async (req, res) => {
+  try {
+    const { query } = req.query;
+
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ success: false, message: "Invalid query" });
+    }
+
+    const products = await productModel
+      .find({
+        name: { $regex: query, $options: "i" },
+      })
+      .populate({
+        path: "warehouse",
+        select: "quantityInStock quantityInStore price", // Select only necessary fields
+      });
+
+    res.json({ success: true, products });
+  } catch (error) {
+    console.error("Error searching for products:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const submitBuyback = async (req, res) => {
+  try {
+    const { products, customerDetails } = req.body;
+
+    const buybackTransaction = new buybackModel({
+      products,
+      customerDetails,
+      date: Date.now(),
+    });
+
+    await buybackTransaction.save();
+
+    res.json({ success: true, message: "Buyback transaction completed" });
+  } catch (error) {
+    console.error("Error submitting buyback transaction:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export {
   listProducts,
   addProduct,
   removeProduct,
   singleProduct,
   updateProduct,
+  updateProductWarehouseDetails,
+  searchProducts,
+  submitBuyback,
 };

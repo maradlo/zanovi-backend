@@ -27,22 +27,10 @@ const productSchema = new mongoose.Schema({
     required: true,
   },
   price: {
-    type: Number,
+    type: String,
     required: true,
   },
   bestseller: {
-    type: Boolean,
-    default: false,
-  },
-  quantityUsedInStock: {
-    type: Number,
-    default: 0,
-  },
-  quantityUsedInStore: {
-    type: Number,
-    default: 0,
-  },
-  inStore: {
     type: Boolean,
     default: false,
   },
@@ -50,13 +38,13 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  quantityInStore: {
-    type: Number,
-    default: 0,
+  inStore: {
+    type: Boolean,
+    default: false,
   },
-  quantityInStock: {
-    type: Number,
-    default: 0,
+  documents: {
+    type: [String], // Array of document URLs
+    required: false,
   },
   eanCode: {
     type: String,
@@ -65,6 +53,10 @@ const productSchema = new mongoose.Schema({
   image: {
     type: Array,
     required: true,
+  },
+  warehouse: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "warehouse",
   },
 });
 

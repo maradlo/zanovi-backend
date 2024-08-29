@@ -5,14 +5,20 @@ import {
   removeProduct,
   singleProduct,
   updateProduct,
+  updateProductWarehouseDetails,
+  searchProducts,
+  submitBuyback,
 } from "../controllers/productController.js";
 import upload from "../middleware/multer.js";
 import adminAuth from "../middleware/adminAuth.js";
 
 const productRouter = express.Router();
 
-productRouter.get("/list", listProducts); // Move this line above
-productRouter.get("/:id", singleProduct); // Keep this below the /list route
+productRouter.get("/list", listProducts);
+productRouter.get("/search", searchProducts);
+productRouter.get("/:id", singleProduct);
+
+productRouter.put("/warehouse/update/:id", updateProductWarehouseDetails);
 
 productRouter.post(
   "/add",
@@ -38,5 +44,7 @@ productRouter.put(
   ]),
   updateProduct
 );
+
+productRouter.post("/buyback", adminAuth, submitBuyback);
 
 export default productRouter;
