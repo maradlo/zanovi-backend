@@ -3,7 +3,7 @@ import userModel from "../models/userModel.js";
 import Stripe from "stripe";
 
 // global variables
-const currency = "inr";
+const currency = "eur";
 const deliveryCharge = 10;
 
 // gateway initialize
@@ -14,9 +14,18 @@ const placeOrder = async (req, res) => {
   try {
     const { userId, items, amount, address } = req.body;
 
+    const orderItems = items.map((item) => ({
+      productId: item._id,
+      name: item.name,
+      condition: item.condition,
+      price: item.price,
+      quantity: item.quantity.quantity,
+      image: item.image[0], // Assume you want the first image in the array
+    }));
+
     const orderData = {
       userId,
-      items,
+      items: orderItems,
       address,
       amount,
       paymentMethod: "COD",
@@ -36,15 +45,23 @@ const placeOrder = async (req, res) => {
   }
 };
 
-// Placing orders using Stripe Method
 const placeOrderStripe = async (req, res) => {
   try {
     const { userId, items, amount, address } = req.body;
     const { origin } = req.headers;
 
+    const orderItems = items.map((item) => ({
+      productId: item._id,
+      name: item.name,
+      condition: item.condition,
+      price: item.price,
+      quantity: item.quantity.quantity,
+      image: item.image[0],
+    }));
+
     const orderData = {
       userId,
-      items,
+      items: orderItems,
       address,
       amount,
       paymentMethod: "Stripe",
@@ -55,7 +72,7 @@ const placeOrderStripe = async (req, res) => {
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
-    const line_items = items.map((item) => ({
+    const line_items = orderItems.map((item) => ({
       price_data: {
         currency: currency,
         product_data: {
@@ -147,6 +164,19 @@ const updateStatus = async (req, res) => {
   }
 };
 
+const deleteOrder = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    await orderModel.findByIdAndDelete(orderId);
+
+    res.json({ success: true, message: "Objednávka bola vymazaná" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
 export {
   verifyStripe,
   placeOrder,
@@ -154,4 +184,5 @@ export {
   allOrders,
   userOrders,
   updateStatus,
+  deleteOrder,
 };
