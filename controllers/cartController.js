@@ -44,10 +44,23 @@ const updateCart = async (req, res) => {
     const userData = await userModel.findById(userId);
     let cartData = userData.cartData || {};
 
+    // If the item exists in the cart
     if (cartData[itemId] && cartData[itemId][condition]) {
-      cartData[itemId][condition].quantity = quantity;
+      if (quantity === 0) {
+        // Remove the condition if the quantity is 0
+        delete cartData[itemId][condition];
+
+        // If there are no more conditions for this item, remove the item itself
+        if (Object.keys(cartData[itemId]).length === 0) {
+          delete cartData[itemId];
+        }
+      } else {
+        // Otherwise, update the quantity
+        cartData[itemId][condition].quantity = quantity;
+      }
     }
 
+    // Save the updated cart data
     await userModel.findByIdAndUpdate(userId, { cartData });
     res.json({ success: true, message: "Košík bol aktualizovaný" });
   } catch (error) {

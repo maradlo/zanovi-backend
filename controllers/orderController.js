@@ -1,5 +1,6 @@
 import orderModel from "../models/orderModel.js";
 import userModel from "../models/userModel.js";
+import productModel from "../models/productModel.js";
 import Stripe from "stripe";
 
 // global variables
@@ -36,6 +37,32 @@ const placeOrder = async (req, res) => {
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
+    for (const item of orderItems) {
+      const product = await productModel
+        .findById(item.productId)
+        .populate("warehouse"); // Populate the warehouse data
+
+      if (product && product.warehouse && product.warehouse.quantityInStock) {
+        if (product.warehouse.quantityInStock[item.condition] !== undefined) {
+          product.warehouse.quantityInStock[item.condition] -= item.quantity;
+
+          if (product.warehouse.quantityInStock[item.condition] < 0) {
+            product.warehouse.quantityInStock[item.condition] = 0; // Prevent negative stock
+          }
+
+          await product.warehouse.save();
+        } else {
+          console.error(
+            `Condition '${item.condition}' does not exist for product ID ${item.productId}`
+          );
+        }
+      } else {
+        console.error(
+          `Product or warehouse data not found for product ID ${item.productId}`
+        );
+      }
+    }
+
     await userModel.findByIdAndUpdate(userId, { cartData: {} });
 
     res.json({ success: true, message: "Objednávka vytvorená" });
@@ -71,6 +98,32 @@ const placeOrderStripe = async (req, res) => {
 
     const newOrder = new orderModel(orderData);
     await newOrder.save();
+
+    for (const item of orderItems) {
+      const product = await productModel
+        .findById(item.productId)
+        .populate("warehouse"); // Populate the warehouse data
+
+      if (product && product.warehouse && product.warehouse.quantityInStock) {
+        if (product.warehouse.quantityInStock[item.condition] !== undefined) {
+          product.warehouse.quantityInStock[item.condition] -= item.quantity;
+
+          if (product.warehouse.quantityInStock[item.condition] < 0) {
+            product.warehouse.quantityInStock[item.condition] = 0; // Prevent negative stock
+          }
+
+          await product.warehouse.save();
+        } else {
+          console.error(
+            `Condition '${item.condition}' does not exist for product ID ${item.productId}`
+          );
+        }
+      } else {
+        console.error(
+          `Product or warehouse data not found for product ID ${item.productId}`
+        );
+      }
+    }
 
     const line_items = orderItems.map((item) => ({
       price_data: {
