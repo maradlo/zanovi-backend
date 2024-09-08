@@ -12,6 +12,7 @@ import warehouseRouter from "./routes/warehouseRoute.js";
 import consoleRouter from "./routes/consolesRoute.js";
 import buybackRouter from "./routes/buybackRoute.js";
 import reservationsRouter from "./routes/reservationRoute.js";
+import warehouseProductRouter from "./routes/warehouseProductRoute.js";
 
 // App Config
 const app = express();
@@ -34,6 +35,7 @@ app.use("/api/warehouse", warehouseRouter);
 app.use("/api/reservations", reservationsRouter);
 app.use("/api/consoles", consoleRouter);
 app.use("/api/buyback", buybackRouter);
+app.use("/api/warehouse-products", warehouseProductRouter);
 
 app.get("/", (req, res) => {
   res.send("API Working");

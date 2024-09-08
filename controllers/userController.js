@@ -206,6 +206,30 @@ const forgotPassword = async (req, res) => {
   }
 };
 
+const updateUserAddress = async (req, res) => {
+  try {
+    const { name, lastName, street, city, country, phone, zip } = req.body;
+    const token = req.headers.token;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.id;
+
+    await userModel.findByIdAndUpdate(userId, {
+      name,
+      lastName,
+      street,
+      city,
+      country,
+      phone,
+      zip,
+    });
+
+    res.json({ success: true, message: "Address updated successfully." });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: "Failed to update address." });
+  }
+};
+
 export {
   loginUser,
   registerUser,
@@ -213,4 +237,5 @@ export {
   updateEmail,
   updatePassword,
   forgotPassword,
+  updateUserAddress,
 };

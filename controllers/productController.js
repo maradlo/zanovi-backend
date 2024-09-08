@@ -2,6 +2,7 @@ import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
 import buybackModel from "../models/buybackModel.js";
 import warehouseModel from "../models/warehouseModel.js";
+import { createWarehouseProducts } from "./warehouseController.js";
 import mongoose from "mongoose";
 
 // function for add product
@@ -19,6 +20,7 @@ const addProduct = async (req, res) => {
       eanCode,
       serialNumber,
       productClass,
+      youtubeLink,
     } = req.body;
 
     const images = ["image1", "image2", "image3", "image4"]
@@ -34,6 +36,7 @@ const addProduct = async (req, res) => {
       })
     );
 
+    // Create product entry
     const product = new productModel({
       name,
       description,
@@ -45,6 +48,7 @@ const addProduct = async (req, res) => {
       price,
       eanCode,
       serialNumber,
+      youtubeLink,
       class: productClass,
       image: imagesUrl,
       date: Date.now(),
@@ -52,16 +56,47 @@ const addProduct = async (req, res) => {
 
     await product.save();
 
+    // Create warehouse entry
     const warehouse = new warehouseModel({
       product: product._id,
+      quantityInStock: {
+        new: 1, // example starting quantity
+        used: 0,
+      },
+      quantityInStore: {
+        new: 0,
+        used: 0,
+      },
+      price: {
+        new: price, // set the initial price for new
+        used: 0, // set the initial price for used (can be updated later)
+      },
     });
 
     await warehouse.save();
 
+    // Link warehouse entry to the product
     product.warehouse = warehouse._id;
     await product.save();
 
-    res.json({ success: true, message: "Produkt pridaný" });
+    // Create corresponding WarehouseProduct entries
+    await createWarehouseProducts(
+      product._id,
+      warehouse._id,
+      warehouse.quantityInStock.new,
+      "new"
+    );
+    await createWarehouseProducts(
+      product._id,
+      warehouse._id,
+      warehouse.quantityInStock.used,
+      "used"
+    );
+
+    res.json({
+      success: true,
+      message: "Produkt pridaný a skladové produkty vytvorené",
+    });
   } catch (error) {
     console.log(error);
     res.status(500).json({ success: false, message: error.message });
@@ -86,6 +121,7 @@ const updateProduct = async (req, res) => {
       quantityInStock,
       quantityInStore,
       warehousePrice, // expecting price object with new and used prices
+      youtubeLink,
     } = req.body;
 
     const images = ["image1", "image2", "image3", "image4"]
@@ -114,6 +150,7 @@ const updateProduct = async (req, res) => {
       bestseller,
       condition,
       eanCode,
+      youtubeLink,
       serialNumber,
       class: productClass,
       ...(imagesUrl && { image: imagesUrl }),
@@ -182,11 +219,16 @@ const listProducts = async (req, res) => {
 // function for removing product
 const removeProduct = async (req, res) => {
   try {
-    await productModel.findByIdAndDelete(req.body.id);
+    const { id } = req.body;
+    await productModel.findByIdAndDelete(id);
+
+    // Odstráň aj produkty v "warehouseProdukt"
+    await warehouseProductModel.deleteMany({ product: id });
+
     res.json({ success: true, message: "Produkt vymazaný" });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

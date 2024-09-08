@@ -2,13 +2,67 @@ import orderModel from "../models/orderModel.js";
 import userModel from "../models/userModel.js";
 import productModel from "../models/productModel.js";
 import Stripe from "stripe";
+import PDFDocument from "pdfkit";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // global variables
 const currency = "eur";
 const deliveryCharge = 10;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // gateway initialize
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+const generateInvoicePDF = async (order, user) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument();
+
+    // Define the path to save the PDF
+    const invoicePath = path.join(
+      __dirname,
+      `../assets/faktury/faktura-${Date.now()}-${order._id}.pdf`
+    );
+
+    // Create a write stream to write the PDF to file
+    const stream = fs.createWriteStream(invoicePath);
+
+    // Pipe the PDF into the file
+    doc.pipe(stream);
+
+    // Add some header info
+    doc.fontSize(20).text("Invoice", { align: "center" });
+    doc.fontSize(14).text(`Order ID: ${order._id}`, { align: "left" });
+    doc.text(`Date: ${new Date(order.date).toLocaleString()}`, {
+      align: "left",
+    });
+    doc.text(`Customer: ${user.name}`, { align: "left" });
+    doc.text(`Address: ${order.address}`, { align: "left" });
+
+    // Add order items
+    doc.moveDown();
+    order.items.forEach((item, index) => {
+      doc.text(
+        `${index + 1}. ${item.name} - ${item.condition} - Quantity: ${
+          item.quantity
+        } - Price: ${item.price} EUR`
+      );
+    });
+
+    // Add the total
+    doc.moveDown();
+    doc.text(`Total Amount: ${order.amount} EUR`, { align: "left" });
+
+    // Close the PDF and resolve the promise
+    doc.end();
+    stream.on("finish", () => {
+      resolve(invoicePath);
+    });
+    stream.on("error", reject);
+  });
+};
 
 // Placing orders using COD Method
 const placeOrder = async (req, res) => {
@@ -65,7 +119,17 @@ const placeOrder = async (req, res) => {
 
     await userModel.findByIdAndUpdate(userId, { cartData: {} });
 
-    res.json({ success: true, message: "Objednávka vytvorená" });
+    // Fetch the user details
+    const user = await userModel.findById(userId);
+
+    // Generate the PDF invoice
+    const invoicePath = await generateInvoicePDF(newOrder, user);
+
+    res.json({
+      success: true,
+      message: "Objednávka vytvorená",
+      invoice: invoicePath,
+    });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
@@ -154,7 +218,13 @@ const placeOrderStripe = async (req, res) => {
       mode: "payment",
     });
 
-    res.json({ success: true, session_url: session.url });
+    // Fetch the user details
+    const user = await userModel.findById(userId);
+
+    // Generate the PDF invoice
+    const invoicePath = await generateInvoicePDF(newOrder, user);
+
+    res.json({ success: true, session_url: session.url, invoice: invoicePath });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });

@@ -50,9 +50,17 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
+  serialNumber: {
+    type: String,
+    required: false,
+  },
   image: {
     type: Array,
     required: true,
+  },
+  youtubeLink: {
+    type: String,
+    required: false,
   },
   warehouse: {
     type: mongoose.Schema.Types.ObjectId,

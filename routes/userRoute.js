@@ -6,6 +6,7 @@ import {
   updateEmail,
   updatePassword,
   forgotPassword,
+  updateUserAddress,
 } from "../controllers/userController.js";
 
 const userRouter = express.Router();
@@ -16,5 +17,6 @@ userRouter.post("/admin", adminLogin);
 userRouter.post("/update-email", updateEmail);
 userRouter.post("/update-password", updatePassword);
 userRouter.post("/forgot-password", forgotPassword);
+userRouter.post("/update-address", updateUserAddress);
 
 export default userRouter;
