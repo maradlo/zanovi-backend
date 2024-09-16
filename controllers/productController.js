@@ -62,7 +62,7 @@ const addProduct = async (req, res) => {
     const warehouse = new warehouseModel({
       product: product._id,
       quantityInStock: {
-        new: 1, // example starting quantity
+        new: 0, // example starting quantity
         used: 0,
       },
       quantityInStore: {
@@ -136,95 +136,53 @@ const addProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      description,
-      description2,
-      category,
-      subCategory,
-      price,
-      condition,
-      bestseller,
+
+    // Validate product ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
+    // Find the existing product
+    const existingProduct = await productModel.findById(id);
+
+    if (!existingProduct) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+
+    // Extract EAN code and other fields from request body
+    const { eanCode } = req.body;
+
+    // Prepare updated product data
+    const updatedProductData = {
+      ...req.body, // Include all other fields
       eanCode,
-      serialNumber,
-      productClass,
-      quantityInStock,
-      quantityInStore,
-      warehousePrice, // expecting price object with new and used prices
-      youtubeLink,
-    } = req.body;
-
-    const images = ["image1", "image2", "image3", "image4"]
-      .map((key) => req.files[key] && req.files[key][0])
-      .filter((item) => item !== undefined);
-
-    const imagesUrl =
-      images.length > 0
-        ? await Promise.all(
-            images.map(async (item) => {
-              const result = await cloudinary.uploader.upload(item.path, {
-                resource_type: "image",
-              });
-              return result.secure_url;
-            })
-          )
-        : undefined;
-
-    const productData = {
-      name,
-      description,
-      description2,
-      category,
-      subCategory,
-      price,
-      bestseller,
-      condition,
-      eanCode,
-      youtubeLink,
-      serialNumber,
-      class: productClass,
-      ...(imagesUrl && { image: imagesUrl }),
     };
 
+    // Update the product
     const updatedProduct = await productModel.findByIdAndUpdate(
       id,
-      { $set: productData },
+      updatedProductData,
       { new: true }
     );
 
-    if (!updatedProduct) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Produkt sa nenašiel" });
-    }
-
-    if (quantityInStock || quantityInStore || warehousePrice) {
-      const warehouseEntry = await warehouseModel.findOneAndUpdate(
-        { product: id },
-        {
-          $set: {
-            quantityInStock,
-            quantityInStore,
-            price: warehousePrice,
-          },
-        },
-        { new: true }
-      );
-      if (!warehouseEntry) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Warehouse entry not found" });
-      }
+    // Check if EAN code has changed
+    if (eanCode && eanCode !== existingProduct.eanCode) {
+      // Update EAN code in all associated warehouseProduct entries
+      await warehouseProductModel.updateMany({ product: id }, { eanCode });
     }
 
     res.json({
       success: true,
-      message: "Produkt aktualizovaný",
+      message: "Product updated successfully",
       product: updatedProduct,
     });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Error updating product:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
@@ -410,6 +368,149 @@ const submitBuyback = async (req, res) => {
   }
 };
 
+const updateProductEANCode = async (req, res) => {
+  try {
+    const { id } = req.params; // Product ID
+    const { eanCode } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
+    // Update the product's EAN code
+    const updatedProduct = await productModel.findByIdAndUpdate(
+      id,
+      { eanCode },
+      { new: true }
+    );
+
+    if (!updatedProduct) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+
+    // Optionally, update the EAN code in all associated warehouseProducts
+    await warehouseProductModel.updateMany({ product: id }, { eanCode });
+
+    res.json({
+      success: true,
+      message: "Product EAN code updated",
+      product: updatedProduct,
+    });
+  } catch (error) {
+    console.error("Error updating product EAN code:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const getProductByEANCode = async (req, res) => {
+  try {
+    const { eanCode } = req.params;
+    const product = await productModel.findOne({ eanCode });
+
+    if (product) {
+      res.json({ success: true, product });
+    } else {
+      res.json({
+        success: false,
+        message: "Produkt s týmto EAN kódom neexistuje",
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching product by EAN code:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+const updateProductQuantity = async (req, res) => {
+  try {
+    const { productId, location, amount, condition } = req.body;
+
+    if (!productId || !location || !amount || !condition) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing required fields" });
+    }
+
+    if (!["store", "stock"].includes(location)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid location" });
+    }
+
+    if (!["new", "used"].includes(condition)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid condition" });
+    }
+
+    const product = await productModel.findById(productId);
+
+    if (!product) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+
+    // Find the warehouse associated with this product
+    let warehouse = await warehouseModel.findOne({ product: product.id });
+
+    if (!warehouse) {
+      // Create a warehouse document for this product if it doesn't exist
+      warehouse = new warehouseModel({
+        product: product.id,
+        quantityInStock: { new: 0, used: 0 },
+        quantityInStore: { new: 0, used: 0 },
+      });
+    }
+
+    // Update the quantity in the warehouse
+    if (location === "stock") {
+      if (warehouse.quantityInStock[condition] === undefined) {
+        warehouse.quantityInStock[condition] = 0;
+      }
+      warehouse.quantityInStock[condition] += amount;
+    } else if (location === "store") {
+      if (warehouse.quantityInStore[condition] === undefined) {
+        warehouse.quantityInStore[condition] = 0;
+      }
+      warehouse.quantityInStore[condition] += amount;
+    }
+
+    await warehouse.save();
+
+    // Now, create a new warehouseProduct for each unit added
+    for (let i = 0; i < amount; i++) {
+      const warehouseProductData = {
+        product: product.id,
+        warehouse: warehouse.id,
+        condition: condition,
+        location: location === "stock" ? "in stock" : "in store",
+        eanCode: product.eanCode,
+        serialNumber: "", // If applicable, or collect from user input
+        price: product.price || 0,
+        quantity: 1, // Each warehouseProduct represents one unit
+        dateAdded: new Date(),
+      };
+
+      const newWarehouseProduct = new warehouseProductModel(
+        warehouseProductData
+      );
+      await newWarehouseProduct.save();
+    }
+
+    res.json({
+      success: true,
+      message: "Product quantity and warehouseProducts updated",
+    });
+  } catch (error) {
+    console.error("Error updating product quantity:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export {
   listProducts,
   addProduct,
@@ -419,4 +520,7 @@ export {
   updateProductWarehouseDetails,
   searchProducts,
   submitBuyback,
+  updateProductEANCode,
+  getProductByEANCode,
+  updateProductQuantity,
 };

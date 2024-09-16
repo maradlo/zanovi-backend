@@ -21,11 +21,11 @@ const warehouseProductSchema = new mongoose.Schema({
     enum: ["in stock", "in store"],
     required: true,
   },
-  eanCode: {
+  serialNumber: {
     type: String,
     required: false,
   },
-  serialNumber: {
+  eanCode: {
     type: String,
     required: false,
   },

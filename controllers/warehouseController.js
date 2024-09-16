@@ -10,7 +10,11 @@ export const listWarehouseEntries = async (req, res) => {
 
     // Categorize entries by category and subcategory
     const categorizedEntries = warehouses.reduce((acc, warehouse) => {
-      const category = warehouse.product.category;
+      if (!warehouse.product) {
+        return acc; // Skip this warehouse entry
+      }
+
+      const category = warehouse.product.category || "Unknown Category";
       const subCategory = warehouse.product.subCategory || "General";
 
       if (!acc[category]) {

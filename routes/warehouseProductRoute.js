@@ -4,6 +4,7 @@ import {
   addWarehouseProducts,
   removeWarehouseProduct,
   updateWarehouseProduct,
+  getWarehouseProductsByProductId,
 } from "../controllers/warehouseProductController.js";
 
 const warehouseProductRouter = express.Router();
@@ -18,5 +19,10 @@ warehouseProductRouter.put("/update/:id", updateWarehouseProduct);
 
 // Route to remove a warehouse product
 warehouseProductRouter.delete("/remove/:id", removeWarehouseProduct);
+
+warehouseProductRouter.get(
+  "/product/:productId",
+  getWarehouseProductsByProductId
+);
 
 export default warehouseProductRouter;
