@@ -2,8 +2,10 @@ import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
 import buybackModel from "../models/buybackModel.js";
 import warehouseModel from "../models/warehouseModel.js";
+import warehouseProductModel from "../models/warehouseProductModel.js";
 import { createWarehouseProducts } from "./warehouseController.js";
 import mongoose from "mongoose";
+import { syncWarehouseProducts } from "./warehouseController.js";
 
 // function for add product
 const addProduct = async (req, res) => {
@@ -79,19 +81,47 @@ const addProduct = async (req, res) => {
     product.warehouse = warehouse._id;
     await product.save();
 
-    // Create corresponding WarehouseProduct entries
-    await createWarehouseProducts(
-      product._id,
-      warehouse._id,
-      warehouse.quantityInStock.new,
-      "new"
-    );
-    await createWarehouseProducts(
-      product._id,
-      warehouse._id,
-      warehouse.quantityInStock.used,
-      "used"
-    );
+    // Create corresponding WarehouseProduct entries for each condition and location
+    if (warehouse.quantityInStock.new > 0) {
+      await createWarehouseProducts(
+        product._id,
+        warehouse._id,
+        warehouse.quantityInStock.new,
+        "new",
+        "in stock"
+      );
+    }
+
+    if (warehouse.quantityInStore.new > 0) {
+      await createWarehouseProducts(
+        product._id,
+        warehouse._id,
+        warehouse.quantityInStore.new,
+        "new",
+        "in store"
+      );
+    }
+
+    // Similarly for "used" condition
+    if (warehouse.quantityInStock.used > 0) {
+      await createWarehouseProducts(
+        product._id,
+        warehouse._id,
+        warehouse.quantityInStock.used,
+        "used",
+        "in stock"
+      );
+    }
+
+    if (warehouse.quantityInStore.used > 0) {
+      await createWarehouseProducts(
+        product._id,
+        warehouse._id,
+        warehouse.quantityInStore.used,
+        "used",
+        "in store"
+      );
+    }
 
     res.json({
       success: true,
@@ -207,6 +237,10 @@ const listProducts = async (req, res) => {
         path: "warehouse",
         select: "quantityInStock quantityInStore price", // Include the price
       })
+      .populate({
+        path: "warehouseProducts", // Populate warehouseProducts
+        select: "condition location eanCode serialNumber price", // Select necessary fields
+      })
       .lean();
 
     res.json({ success: true, products });
@@ -265,44 +299,62 @@ const singleProduct = async (req, res) => {
 const updateProductWarehouseDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      inStock,
-      inStore,
-      documents,
-      quantityInStock,
-      quantityInStore,
-      price,
-    } = req.body;
+    const { quantityInStock, quantityInStore, price } = req.body;
 
-    // Ensure the product ID is valid
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid product ID" });
     }
 
-    // Find the warehouse entry for this product
     let warehouseEntry = await warehouseModel.findOne({ product: id });
 
     if (!warehouseEntry) {
-      // If the entry does not exist, create a new one
+      // Create warehouse entry if it doesn't exist
       warehouseEntry = new warehouseModel({
         product: id,
         quantityInStock,
         quantityInStore,
-        price, // include the price
-        documents,
+        price,
       });
     } else {
-      // Update the existing entry
+      // Update warehouse quantities
       warehouseEntry.quantityInStock = quantityInStock;
       warehouseEntry.quantityInStore = quantityInStore;
-      warehouseEntry.price = price; // update the price
-      warehouseEntry.documents = documents;
+      warehouseEntry.price = price;
     }
 
-    // Save the warehouse entry
     await warehouseEntry.save();
+
+    // Sync warehouse products for both "new" and "used" conditions
+    await syncWarehouseProducts(
+      id,
+      warehouseEntry._id,
+      quantityInStock.new,
+      "new",
+      "in stock"
+    );
+    await syncWarehouseProducts(
+      id,
+      warehouseEntry._id,
+      quantityInStore.new,
+      "new",
+      "in store"
+    );
+    await syncWarehouseProducts(
+      id,
+      warehouseEntry._id,
+      quantityInStock.used,
+      "used",
+      "in stock"
+    );
+    await syncWarehouseProducts(
+      id,
+      warehouseEntry._id,
+      quantityInStore.used,
+      "used",
+      "in store"
+    );
 
     res.json({
       success: true,

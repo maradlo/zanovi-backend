@@ -21,6 +21,20 @@ const reservationSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
+  confirmed: {
+    type: Boolean,
+    required: false,
+    default: false,
+  },
+  declined: {
+    type: Boolean,
+    required: false,
+    default: false,
+  },
+  email: {
+    type: String,
+    required: true,
+  },
 });
 
 const reservationModel =

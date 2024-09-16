@@ -66,6 +66,12 @@ const productSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "warehouse",
   },
+  warehouseProducts: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "warehouseProduct",
+    },
+  ],
 });
 
 const productModel =

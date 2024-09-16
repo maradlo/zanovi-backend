@@ -34,23 +34,32 @@ export const createWarehouseProducts = async (
   productId,
   warehouseId,
   quantity,
-  condition
+  condition,
+  location
 ) => {
   const warehouseProducts = [];
 
   for (let i = 0; i < quantity; i++) {
-    warehouseProducts.push({
+    const newWarehouseProduct = new warehouseProductModel({
       product: productId,
       warehouse: warehouseId,
       condition,
-      location: "in stock", // Default to "in stock" initially; can be updated later
-      eanCode: "", // Can be filled later by the user
-      serialNumber: "", // Can be filled later by the user
+      location,
+      eanCode: "", // User can set later
+      serialNumber: "", // User can set later
       price: 0, // Default price
     });
+
+    const savedProduct = await newWarehouseProduct.save();
+    warehouseProducts.push(savedProduct._id);
   }
 
-  return await warehouseProductModel.insertMany(warehouseProducts);
+  // Add the warehouseProduct IDs to the product's warehouseProducts array
+  await productModel.findByIdAndUpdate(productId, {
+    $push: { warehouseProducts: { $each: warehouseProducts } },
+  });
+
+  return warehouseProducts;
 };
 
 // Add a new warehouse entry
@@ -126,7 +135,7 @@ export const updateWarehouseEntry = async (req, res) => {
       warehouseEntry.product._id,
       warehouseEntry._id,
       quantityInStore.new,
-      "new"
+      "in store"
     );
 
     await syncWarehouseProducts(
@@ -140,7 +149,7 @@ export const updateWarehouseEntry = async (req, res) => {
       warehouseEntry.product._id,
       warehouseEntry._id,
       quantityInStore.used,
-      "used"
+      "in store"
     );
 
     res.json({
@@ -154,15 +163,13 @@ export const updateWarehouseEntry = async (req, res) => {
 };
 
 // Sync Warehouse Products with quantities
-const syncWarehouseProducts = async (
+export const syncWarehouseProducts = async (
   productId,
   warehouseId,
-  condition,
-  location,
   targetQuantity,
-  price
+  condition,
+  location
 ) => {
-  // Get current warehouse products
   const existingProducts = await warehouseProductModel.find({
     product: productId,
     warehouse: warehouseId,
@@ -172,7 +179,7 @@ const syncWarehouseProducts = async (
 
   const currentCount = existingProducts.length;
 
-  // Add missing products
+  // If we need to add more products
   if (targetQuantity > currentCount) {
     const productsToAdd = targetQuantity - currentCount;
     for (let i = 0; i < productsToAdd; i++) {
@@ -181,15 +188,15 @@ const syncWarehouseProducts = async (
         warehouse: warehouseId,
         condition,
         location,
-        price, // set price for the warehouse product
-        eanCode: "", // user can set later
-        serialNumber: "", // user can set later
+        eanCode: "",
+        serialNumber: "",
+        price: 0,
       });
       await newProduct.save();
     }
   }
 
-  // Remove extra products
+  // If we need to remove excess products
   if (targetQuantity < currentCount) {
     const productsToRemove = currentCount - targetQuantity;
     for (let i = 0; i < productsToRemove; i++) {
