@@ -30,49 +30,59 @@ const stripeConfig = {
 
 const generateInvoicePDF = async (order, user) => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument();
+    try {
+      const doc = new PDFDocument();
+      // Create the directory if it doesn't exist
+      const invoiceDir = path.join(__dirname, "../assets/faktury");
+      if (!fs.existsSync(invoiceDir)) {
+        fs.mkdirSync(invoiceDir, { recursive: true });
+      }
 
-    // Define the path to save the PDF
-    const invoicePath = path.join(
-      __dirname,
-      `../assets/faktury/faktura-${Date.now()}-${order._id}.pdf`
-    );
-
-    // Create a write stream to write the PDF to file
-    const stream = fs.createWriteStream(invoicePath);
-
-    // Pipe the PDF into the file
-    doc.pipe(stream);
-
-    // Add some header info
-    doc.fontSize(20).text("Invoice", { align: "center" });
-    doc.fontSize(14).text(`Order ID: ${order._id}`, { align: "left" });
-    doc.text(`Date: ${new Date(order.date).toLocaleString()}`, {
-      align: "left",
-    });
-    doc.text(`Customer: ${user.name}`, { align: "left" });
-    doc.text(`Address: ${order.address}`, { align: "left" });
-
-    // Add order items
-    doc.moveDown();
-    order.items.forEach((item, index) => {
-      doc.text(
-        `${index + 1}. ${item.name} - ${item.condition} - Quantity: ${
-          item.quantity
-        } - Price: ${item.price} EUR`
+      // Define the path to save the PDF
+      const invoicePath = path.join(
+        __dirname,
+        `../assets/faktury/faktura-${Date.now()}-${order._id}.pdf`
       );
-    });
 
-    // Add the total
-    doc.moveDown();
-    doc.text(`Total Amount: ${order.amount} EUR`, { align: "left" });
+      // Create a write stream to write the PDF to file
+      const stream = fs.createWriteStream(invoicePath);
 
-    // Close the PDF and resolve the promise
-    doc.end();
-    stream.on("finish", () => {
-      resolve(invoicePath);
-    });
-    stream.on("error", reject);
+      // Pipe the PDF into the file
+      doc.pipe(stream);
+
+      // Add some header info
+      doc.fontSize(20).text("Invoice", { align: "center" });
+      doc.fontSize(14).text(`Order ID: ${order._id}`, { align: "left" });
+      doc.text(`Date: ${new Date(order.date).toLocaleString()}`, {
+        align: "left",
+      });
+      doc.text(`Customer: ${user.name}`, { align: "left" });
+      doc.text(`Address: ${order.address}`, { align: "left" });
+
+      // Add order items
+      doc.moveDown();
+      order.items.forEach((item, index) => {
+        doc.text(
+          `${index + 1}. ${item.name} - ${item.condition} - Quantity: ${
+            item.quantity
+          } - Price: ${item.price} EUR`
+        );
+      });
+
+      // Add the total
+      doc.moveDown();
+      doc.text(`Total Amount: ${order.amount} EUR`, { align: "left" });
+
+      // Close the PDF and resolve the promise
+      doc.end();
+      stream.on("finish", () => {
+        resolve(invoicePath);
+      });
+      stream.on("error", reject);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      reject(error);
+    }
   });
 };
 
@@ -87,7 +97,7 @@ const placeOrder = async (req, res) => {
       condition: item.condition,
       price: item.price,
       quantity: item.quantity.quantity,
-      image: item.image[0], // Assume you want the first image in the array
+      image: item.image?.[0] || null,
     }));
 
     const orderData = {
@@ -153,14 +163,37 @@ const placeOrderStripe = async (req, res) => {
     const { userId, items, amount, address } = req.body;
     const { origin } = req.headers;
 
+    // Validate items array
+    if (!items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No items in cart",
+      });
+    }
+
     const orderItems = items.map((item) => ({
       productId: item._id,
       name: item.name,
       condition: item.condition,
       price: item.price,
-      quantity: item.quantity.quantity,
-      image: item.image[0],
+      quantity: item.quantity,
+      image: item.image?.[0] || null,
     }));
+
+    console.log("Processing order items:", orderItems);
+
+    const line_items = orderItems.map((item) => ({
+      price_data: {
+        currency: currency,
+        product_data: {
+          name: `${item.name} (${item.condition})`,
+        },
+        unit_amount: Math.round(item.price * 100), // Ensure price is in cents
+      },
+      quantity: item.quantity,
+    }));
+
+    console.log("Stripe line items:", line_items);
 
     const orderData = {
       userId,
@@ -201,17 +234,6 @@ const placeOrderStripe = async (req, res) => {
       }
     }
 
-    const line_items = orderItems.map((item) => ({
-      price_data: {
-        currency: currency,
-        product_data: {
-          name: item.name,
-        },
-        unit_amount: item.price * 100,
-      },
-      quantity: item.quantity,
-    }));
-
     line_items.push({
       price_data: {
         currency: currency,
@@ -242,17 +264,28 @@ const placeOrderStripe = async (req, res) => {
     // Fetch the user details
     const user = await userModel.findById(userId);
 
-    // Generate the PDF invoice
-    const invoicePath = await generateInvoicePDF(newOrder, user);
+    let invoicePath;
+    try {
+      // Generate the PDF invoice
+      invoicePath = await generateInvoicePDF(newOrder, user);
+    } catch (pdfError) {
+      console.error("PDF Generation Error:", pdfError);
+      // Continue with the order even if PDF generation fails
+      invoicePath = null;
+    }
 
-    res.json({ success: true, session_url: session.url, invoice: invoicePath });
+    res.json({
+      success: true,
+      session_url: session.url,
+      invoice: invoicePath,
+    });
   } catch (error) {
     console.error("Stripe session creation error:", error);
     res.status(500).json({
       success: false,
       message: "Payment processing error",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
+      details: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 };

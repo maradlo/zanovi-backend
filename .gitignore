@@ -1,2 +1,5 @@
 .env
 node_modules/
+# Ignore generated PDFs but keep the directory
+assets/faktury/*
+!assets/faktury/.gitkeep
