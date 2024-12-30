@@ -7,6 +7,7 @@ import {
   updateStatus,
   verifyStripe,
   deleteOrder,
+  handleStripeWebhook,
 } from "../controllers/orderController.js";
 import adminAuth from "../middleware/adminAuth.js";
 import authUser from "../middleware/auth.js";
@@ -28,5 +29,11 @@ orderRouter.post("/userorders", authUser, userOrders);
 orderRouter.post("/verifyStripe", authUser, verifyStripe);
 
 orderRouter.post("/delete", authUser, deleteOrder);
+
+orderRouter.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook
+);
 
 export default orderRouter;

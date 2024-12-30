@@ -2,13 +2,17 @@ import jwt from "jsonwebtoken";
 
 const adminAuth = async (req, res, next) => {
   try {
-    const { token } = req.headers;
+    const token = req.headers.token;
+
     if (!token) {
-      return res.json({
+      return res.status(401).json({
         success: false,
-        message: "Nie ste autorizovaný! Prihláste sa znova",
+        message: "No authentication token provided",
       });
     }
+
+    console.log("Received token:", token);
+
     const token_decode = jwt.verify(token, process.env.JWT_SECRET);
     if (token_decode !== process.env.ADMIN_EMAIL + process.env.ADMIN_PASSWORD) {
       return res.json({
@@ -18,8 +22,11 @@ const adminAuth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.log(error);
-    res.json({ success: false, message: error.message });
+    console.error("Auth middleware error:", error);
+    res.status(401).json({
+      success: false,
+      message: "Authentication failed",
+    });
   }
 };
 

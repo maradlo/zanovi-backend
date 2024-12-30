@@ -24,6 +24,7 @@ connectCloudinary();
 app.use(express.json());
 app.use(cors());
 app.use("/uploads", express.static("uploads"));
+app.use("/api/order/webhook", express.raw({ type: "application/json" }));
 
 // api endpoints
 app.use("/api/user", userRouter);

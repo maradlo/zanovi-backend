@@ -14,7 +14,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // gateway initialize
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(
+  process.env.NODE_ENV === "production"
+    ? process.env.STRIPE_LIVE_SECRET_KEY
+    : process.env.STRIPE_TEST_SECRET_KEY
+);
+
+// Add environment check to use correct keys
+const stripeConfig = {
+  secretKey:
+    process.env.NODE_ENV === "production"
+      ? process.env.STRIPE_LIVE_SECRET_KEY
+      : process.env.STRIPE_TEST_SECRET_KEY,
+};
 
 const generateInvoicePDF = async (order, user) => {
   return new Promise((resolve, reject) => {
@@ -216,6 +228,15 @@ const placeOrderStripe = async (req, res) => {
       cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
       line_items,
       mode: "payment",
+      payment_method_types: ["card"],
+      billing_address_collection: "required",
+      shipping_address_collection: {
+        allowed_countries: ["SK"], // Adjust for your supported countries
+      },
+      metadata: {
+        orderId: newOrder._id.toString(),
+      },
+      customer_email: req.user?.email, // If you have user email
     });
 
     // Fetch the user details
@@ -226,8 +247,13 @@ const placeOrderStripe = async (req, res) => {
 
     res.json({ success: true, session_url: session.url, invoice: invoicePath });
   } catch (error) {
-    console.log(error);
-    res.json({ success: false, message: error.message });
+    console.error("Stripe session creation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Payment processing error",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
 
@@ -300,6 +326,41 @@ const deleteOrder = async (req, res) => {
   }
 };
 
+// Add this new endpoint
+const handleStripeWebhook = async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  try {
+    const event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+
+    switch (event.type) {
+      case "checkout.session.completed":
+        const session = event.data.object;
+        const orderId = session.metadata.orderId;
+
+        // Update order status
+        await orderModel.findByIdAndUpdate(orderId, {
+          payment: true,
+          paymentId: session.payment_intent,
+          paymentStatus: "paid",
+        });
+        break;
+
+      case "payment_intent.payment_failed":
+        const paymentIntent = event.data.object;
+        console.error("Payment failed:", paymentIntent.id);
+        // Handle failed payment
+        break;
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    console.error("Webhook error:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+};
+
 export {
   verifyStripe,
   placeOrder,
@@ -308,4 +369,5 @@ export {
   userOrders,
   updateStatus,
   deleteOrder,
+  handleStripeWebhook,
 };

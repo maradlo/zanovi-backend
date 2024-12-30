@@ -9,7 +9,6 @@ const listCategories = async (req, res) => {
   }
 };
 
-// Add a new category
 const addCategory = async (req, res) => {
   try {
     const { name } = req.body;
@@ -29,7 +28,6 @@ const addCategory = async (req, res) => {
   }
 };
 
-// Add a new subcategory
 const addSubCategory = async (req, res) => {
   try {
     const { categoryName, subCategoryName } = req.body;
@@ -39,14 +37,21 @@ const addSubCategory = async (req, res) => {
       return res.json({ success: false, message: "Kategória sa nenašla" });
     }
 
-    if (category.subCategories.includes(subCategoryName)) {
+    const exists = category.subCategories.some(
+      (sc) => sc === subCategoryName || (sc && sc.name === subCategoryName)
+    );
+
+    if (exists) {
       return res.json({
         success: false,
         message: "Subkategória už existuje",
       });
     }
 
-    category.subCategories.push(subCategoryName);
+    category.subCategories.push({
+      name: subCategoryName,
+      subSubCategories: [],
+    });
     await category.save();
 
     res.json({ success: true, message: "Subkategória pridaná", category });
@@ -67,13 +72,79 @@ const getSubCategories = async (req, res) => {
         .json({ success: false, message: "Kategória sa nenašla" });
     }
 
-    res.json({ success: true, subCategories: category.subCategories });
+    const subCategories = category.subCategories
+      .map((sc) => (typeof sc === "string" ? sc : sc.name))
+      .filter(Boolean);
+
+    res.json({ success: true, subCategories });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Delete a category
+const getSubSubCategories = async (req, res) => {
+  try {
+    const { categoryName, subCategoryName } = req.params;
+
+    const category = await CategoryModel.findOne({ name: categoryName });
+    if (!category) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Kategória sa nenašla" });
+    }
+
+    const subCategory = category.subCategories.find(
+      (sc) => sc.name === subCategoryName
+    );
+    if (!subCategory) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Podkategória sa nenašla" });
+    }
+
+    res.json({ success: true, subSubCategories: subCategory.subSubCategories });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const addSubSubCategory = async (req, res) => {
+  try {
+    const { categoryName, subCategoryName, subSubCategoryName } = req.body;
+
+    const category = await CategoryModel.findOne({ name: categoryName });
+    if (!category) {
+      return res.json({ success: false, message: "Kategória sa nenašla" });
+    }
+
+    const subCategory = category.subCategories.find(
+      (sc) => sc.name === subCategoryName
+    );
+
+    if (!subCategory) {
+      return res.json({
+        success: false,
+        message: "Podkategória sa nenašla",
+      });
+    }
+
+    if (subCategory.subSubCategories.includes(subSubCategoryName)) {
+      return res.json({
+        success: false,
+        message: "Podpodkategória už existuje",
+      });
+    }
+
+    subCategory.subSubCategories.push(subSubCategoryName);
+    await category.save();
+
+    res.json({ success: true, message: "Podpodkategória pridaná", category });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
 const deleteCategory = async (req, res) => {
   try {
     const { name } = req.body;
@@ -89,7 +160,6 @@ const deleteCategory = async (req, res) => {
   }
 };
 
-// Delete a subcategory
 const deleteSubCategory = async (req, res) => {
   try {
     const { categoryName, subCategoryName } = req.body;
@@ -99,7 +169,10 @@ const deleteSubCategory = async (req, res) => {
       return res.json({ success: false, message: "Kategória sa nenašla" });
     }
 
-    const index = category.subCategories.indexOf(subCategoryName);
+    const index = category.subCategories.findIndex(
+      (sc) => sc === subCategoryName || (sc && sc.name === subCategoryName)
+    );
+
     if (index > -1) {
       category.subCategories.splice(index, 1);
       await category.save();
@@ -112,11 +185,43 @@ const deleteSubCategory = async (req, res) => {
   }
 };
 
+const deleteSubSubCategory = async (req, res) => {
+  try {
+    const { categoryName, subCategoryName, subSubCategoryName } = req.body;
+
+    const category = await CategoryModel.findOne({ name: categoryName });
+    if (!category) {
+      return res.json({ success: false, message: "Kategória sa nenašla" });
+    }
+
+    const subCategory = category.subCategories.find(
+      (sc) => sc.name === subCategoryName
+    );
+    if (!subCategory) {
+      return res.json({ success: false, message: "Podkategória sa nenašla" });
+    }
+
+    const index = subCategory.subSubCategories.indexOf(subSubCategoryName);
+    if (index > -1) {
+      subCategory.subSubCategories.splice(index, 1);
+      await category.save();
+      res.json({ success: true, message: "Podpodkategória vymazaná" });
+    } else {
+      res.json({ success: false, message: "Podpodkategória sa nenašla" });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export {
   listCategories,
   addCategory,
   addSubCategory,
   getSubCategories,
+  getSubSubCategories,
+  addSubSubCategory,
   deleteCategory,
   deleteSubCategory,
+  deleteSubSubCategory,
 };

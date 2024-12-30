@@ -21,6 +21,10 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
+  subSubCategory: {
+    type: String,
+    required: false,
+  },
   condition: {
     type: String,
     enum: ["new", "used"],
@@ -72,6 +76,10 @@ const productSchema = new mongoose.Schema({
       ref: "warehouseProduct",
     },
   ],
+  isPlaceholder: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const productModel =

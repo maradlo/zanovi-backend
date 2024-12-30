@@ -16,6 +16,7 @@ const addProduct = async (req, res) => {
       description2,
       category,
       subCategory,
+      subSubCategory,
       condition,
       bestseller,
       price,
@@ -45,6 +46,7 @@ const addProduct = async (req, res) => {
       description2,
       category,
       subCategory,
+      subSubCategory,
       condition,
       bestseller,
       price,
@@ -511,6 +513,82 @@ const updateProductQuantity = async (req, res) => {
   }
 };
 
+// Get all subsubcategories for a specific subcategory
+const getSubSubCategories = async (req, res) => {
+  try {
+    const { subCategory } = req.params;
+    const products = await productModel.find({ subCategory });
+    const subSubCategories = [
+      ...new Set(products.map((p) => p.subSubCategory).filter(Boolean)),
+    ];
+    res.json({ success: true, subSubCategories });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// Add new subsubcategory
+const addSubSubCategory = async (req, res) => {
+  try {
+    const { subCategoryName, subSubCategoryName } = req.body;
+    // Check if subsubcategory already exists for this subcategory
+    const existingProduct = await productModel.findOne({
+      subCategory: subCategoryName,
+      subSubCategory: subSubCategoryName,
+    });
+
+    if (existingProduct) {
+      return res.json({
+        success: false,
+        message: "Táto podpodkategória už existuje",
+      });
+    }
+
+    // Create a placeholder product with the new subsubcategory
+    const placeholderProduct = new productModel({
+      category: "Placeholder Category",
+      subCategory: subCategoryName,
+      subSubCategory: subSubCategoryName,
+    });
+
+    console.log(placeholderProduct);
+
+    await placeholderProduct.save();
+
+    res.json({
+      success: true,
+      message: "Podpodkategória bola pridaná",
+      subSubCategoryName,
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// Remove subsubcategory
+const removeSubSubCategory = async (req, res) => {
+  try {
+    const { subCategory, subSubCategory } = req.body;
+
+    // Find and remove all products with this subsubcategory
+    await productModel.deleteMany({
+      subCategory,
+      subSubCategory,
+      isPlaceholder: true, // Only remove placeholder products
+    });
+
+    res.json({
+      success: true,
+      message: "Podpodkategória bola odstránená",
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
 export {
   listProducts,
   addProduct,
@@ -523,4 +601,7 @@ export {
   updateProductEANCode,
   getProductByEANCode,
   updateProductQuantity,
+  getSubSubCategories,
+  addSubSubCategory,
+  removeSubSubCategory,
 };
