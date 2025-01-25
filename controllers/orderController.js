@@ -13,20 +13,12 @@ const deliveryCharge = 10;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// gateway initialize
+// Initialize Stripe with the correct key based on environment
 const stripe = new Stripe(
   process.env.NODE_ENV === "production"
     ? process.env.STRIPE_LIVE_SECRET_KEY
     : process.env.STRIPE_TEST_SECRET_KEY
 );
-
-// Add environment check to use correct keys
-const stripeConfig = {
-  secretKey:
-    process.env.NODE_ENV === "production"
-      ? process.env.STRIPE_LIVE_SECRET_KEY
-      : process.env.STRIPE_TEST_SECRET_KEY,
-};
 
 const generateInvoicePDF = async (order, user) => {
   return new Promise((resolve, reject) => {
@@ -89,14 +81,14 @@ const generateInvoicePDF = async (order, user) => {
 // Placing orders using COD Method
 const placeOrder = async (req, res) => {
   try {
-    const { userId, items, amount, address } = req.body;
+    const { userId, items, amount, address, paymentMethod } = req.body;
 
     const orderItems = items.map((item) => ({
       productId: item._id,
       name: item.name,
       condition: item.condition,
       price: item.price,
-      quantity: item.quantity.quantity,
+      quantity: item.quantity,
       image: item.image?.[0] || null,
     }));
 
@@ -105,188 +97,95 @@ const placeOrder = async (req, res) => {
       items: orderItems,
       address,
       amount,
-      paymentMethod: "COD",
-      payment: false,
+      paymentMethod,
+      payment: paymentMethod === "COD", // Set payment to true for COD, false for Stripe
       date: Date.now(),
     };
 
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
-    for (const item of orderItems) {
-      const product = await productModel
-        .findById(item.productId)
-        .populate("warehouse"); // Populate the warehouse data
+    // Only update stock and clear cart for COD orders
+    if (paymentMethod === "COD") {
+      // Update stock
+      for (const item of orderItems) {
+        const product = await productModel
+          .findById(item.productId)
+          .populate("warehouse");
 
-      if (product && product.warehouse && product.warehouse.quantityInStock) {
-        if (product.warehouse.quantityInStock[item.condition] !== undefined) {
-          product.warehouse.quantityInStock[item.condition] -= item.quantity;
-
-          if (product.warehouse.quantityInStock[item.condition] < 0) {
-            product.warehouse.quantityInStock[item.condition] = 0; // Prevent negative stock
+        if (product?.warehouse?.quantityInStock) {
+          if (product.warehouse.quantityInStock[item.condition] !== undefined) {
+            product.warehouse.quantityInStock[item.condition] -= item.quantity;
+            if (product.warehouse.quantityInStock[item.condition] < 0) {
+              product.warehouse.quantityInStock[item.condition] = 0;
+            }
+            await product.warehouse.save();
           }
-
-          await product.warehouse.save();
-        } else {
-          console.error(
-            `Condition '${item.condition}' does not exist for product ID ${item.productId}`
-          );
         }
-      } else {
-        console.error(
-          `Product or warehouse data not found for product ID ${item.productId}`
-        );
       }
+
+      // Clear cart
+      await userModel.findByIdAndUpdate(userId, { cartData: {} });
     }
-
-    await userModel.findByIdAndUpdate(userId, { cartData: {} });
-
-    // Fetch the user details
-    const user = await userModel.findById(userId);
-
-    // Generate the PDF invoice
-    const invoicePath = await generateInvoicePDF(newOrder, user);
 
     res.json({
       success: true,
-      message: "Objednávka vytvorená",
-      invoice: invoicePath,
+      message: "Order created successfully",
+      orderId: newOrder._id,
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error creating order:", error);
     res.json({ success: false, message: error.message });
   }
 };
 
 const placeOrderStripe = async (req, res) => {
   try {
-    const { userId, items, amount, address } = req.body;
-    const { origin } = req.headers;
+    const { orderId, successUrl, cancelUrl } = req.body;
+    const stripeApiKey = req.headers.authorization?.split("Bearer ")[1];
 
-    // Validate items array
-    if (!items || items.length === 0) {
-      return res.status(400).json({
+    if (!stripeApiKey) {
+      return res.json({
         success: false,
-        message: "No items in cart",
+        message: "No Stripe API key provided",
       });
     }
 
-    const orderItems = items.map((item) => ({
-      productId: item._id,
-      name: item.name,
-      condition: item.condition,
-      price: item.price,
-      quantity: item.quantity,
-      image: item.image?.[0] || null,
-    }));
+    const order = await orderModel.findById(orderId);
 
-    console.log("Processing order items:", orderItems);
-
-    const line_items = orderItems.map((item) => ({
-      price_data: {
-        currency: currency,
-        product_data: {
-          name: `${item.name} (${item.condition})`,
-        },
-        unit_amount: Math.round(item.price * 100), // Ensure price is in cents
-      },
-      quantity: item.quantity,
-    }));
-
-    console.log("Stripe line items:", line_items);
-
-    const orderData = {
-      userId,
-      items: orderItems,
-      address,
-      amount,
-      paymentMethod: "Stripe",
-      payment: false,
-      date: Date.now(),
-    };
-
-    const newOrder = new orderModel(orderData);
-    await newOrder.save();
-
-    for (const item of orderItems) {
-      const product = await productModel
-        .findById(item.productId)
-        .populate("warehouse"); // Populate the warehouse data
-
-      if (product && product.warehouse && product.warehouse.quantityInStock) {
-        if (product.warehouse.quantityInStock[item.condition] !== undefined) {
-          product.warehouse.quantityInStock[item.condition] -= item.quantity;
-
-          if (product.warehouse.quantityInStock[item.condition] < 0) {
-            product.warehouse.quantityInStock[item.condition] = 0; // Prevent negative stock
-          }
-
-          await product.warehouse.save();
-        } else {
-          console.error(
-            `Condition '${item.condition}' does not exist for product ID ${item.productId}`
-          );
-        }
-      } else {
-        console.error(
-          `Product or warehouse data not found for product ID ${item.productId}`
-        );
-      }
+    if (!order) {
+      return res.json({ success: false, message: "Order not found" });
     }
 
-    line_items.push({
-      price_data: {
-        currency: currency,
-        product_data: {
-          name: "Delivery Charges",
-        },
-        unit_amount: deliveryCharge * 100,
-      },
-      quantity: 1,
-    });
+    // Initialize Stripe with the API key from request
+    const stripeInstance = new Stripe(stripeApiKey);
 
-    const session = await stripe.checkout.sessions.create({
-      success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
-      cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
-      line_items,
-      mode: "payment",
+    const session = await stripeInstance.checkout.sessions.create({
       payment_method_types: ["card"],
-      billing_address_collection: "required",
-      shipping_address_collection: {
-        allowed_countries: ["SK"], // Adjust for your supported countries
-      },
+      mode: "payment",
+      line_items: order.items.map((item) => ({
+        price_data: {
+          currency,
+          product_data: {
+            name: item.name,
+            images: item.image ? [item.image] : [],
+          },
+          unit_amount: Math.round(item.price * 100),
+        },
+        quantity: item.quantity,
+      })),
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
-        orderId: newOrder._id.toString(),
+        orderId: orderId.toString(),
+        userId: order.userId.toString(),
       },
-      customer_email: req.user?.email, // If you have user email
     });
 
-    // Fetch the user details
-    const user = await userModel.findById(userId);
-
-    let invoicePath;
-    try {
-      // Generate the PDF invoice
-      invoicePath = await generateInvoicePDF(newOrder, user);
-    } catch (pdfError) {
-      console.error("PDF Generation Error:", pdfError);
-      // Continue with the order even if PDF generation fails
-      invoicePath = null;
-    }
-
-    res.json({
-      success: true,
-      session_url: session.url,
-      invoice: invoicePath,
-    });
+    res.json({ success: true, url: session.url });
   } catch (error) {
-    console.error("Stripe session creation error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Payment processing error",
-      details: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
+    console.error("Stripe error:", error);
+    res.json({ success: false, message: error.message });
   }
 };
 
@@ -323,9 +222,8 @@ const allOrders = async (req, res) => {
 // User Order Data For Forntend
 const userOrders = async (req, res) => {
   try {
-    const { userId } = req.body;
-
-    const orders = await orderModel.find({ userId });
+    const userId = req.body.userId;
+    const orders = await orderModel.find({ userId }).sort({ date: -1 });
     res.json({ success: true, orders });
   } catch (error) {
     console.log(error);
@@ -362,29 +260,68 @@ const deleteOrder = async (req, res) => {
 // Add this new endpoint
 const handleStripeWebhook = async (req, res) => {
   const sig = req.headers["stripe-signature"];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event;
 
   try {
-    const event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
 
-    switch (event.type) {
-      case "checkout.session.completed":
-        const session = event.data.object;
-        const orderId = session.metadata.orderId;
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const orderId = session.metadata.orderId;
+      const userId = session.metadata.userId;
 
-        // Update order status
-        await orderModel.findByIdAndUpdate(orderId, {
-          payment: true,
-          paymentId: session.payment_intent,
-          paymentStatus: "paid",
-        });
-        break;
+      console.log("Processing successful payment for order:", orderId);
 
-      case "payment_intent.payment_failed":
-        const paymentIntent = event.data.object;
-        console.error("Payment failed:", paymentIntent.id);
-        // Handle failed payment
-        break;
+      try {
+        // Update order payment status
+        const order = await orderModel.findById(orderId);
+        if (order) {
+          order.payment = true;
+          await order.save();
+          console.log("Order marked as paid");
+
+          // Update stock
+          for (const item of order.items) {
+            const product = await productModel
+              .findById(item.productId)
+              .populate("warehouse");
+
+            if (product?.warehouse?.quantityInStock) {
+              if (
+                product.warehouse.quantityInStock[item.condition] !== undefined
+              ) {
+                product.warehouse.quantityInStock[item.condition] -=
+                  item.quantity;
+                if (product.warehouse.quantityInStock[item.condition] < 0) {
+                  product.warehouse.quantityInStock[item.condition] = 0;
+                }
+                await product.warehouse.save();
+                console.log("Stock updated for product:", item.productId);
+              }
+            }
+          }
+
+          // Clear user's cart
+          const updatedUser = await userModel.findByIdAndUpdate(
+            userId,
+            { cartData: {} },
+            { new: true }
+          );
+          console.log("Cart cleared for user:", userId);
+
+          if (!updatedUser) {
+            console.error("User not found:", userId);
+          }
+        } else {
+          console.error("Order not found:", orderId);
+        }
+      } catch (error) {
+        console.error("Error processing webhook:", error);
+      }
     }
 
     res.json({ received: true });

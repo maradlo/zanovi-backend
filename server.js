@@ -1,9 +1,9 @@
 import express from "express";
 import cors from "cors";
-import "dotenv/config";
+import dotenv from "dotenv";
 import connectDB from "./config/mongodb.js";
 import connectCloudinary from "./config/cloudinary.js";
-import userRouter from "./routes/userRoute.js";
+import userRoutes from "./routes/userRoutes.js";
 import productRouter from "./routes/productRoute.js";
 import cartRouter from "./routes/cartRoute.js";
 import orderRouter from "./routes/orderRoute.js";
@@ -13,8 +13,9 @@ import consoleRouter from "./routes/consolesRoute.js";
 import buybackRouter from "./routes/buybackRoute.js";
 import reservationsRouter from "./routes/reservationRoute.js";
 import warehouseProductRouter from "./routes/warehouseProductRoute.js";
+import errorHandler from "./middleware/errorHandler.js";
 
-// App Config
+dotenv.config();
 const app = express();
 const port = process.env.PORT || 4000;
 connectDB();
@@ -27,7 +28,7 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/order/webhook", express.raw({ type: "application/json" }));
 
 // api endpoints
-app.use("/api/user", userRouter);
+app.use("/api/user", userRoutes);
 app.use("/api/product", productRouter);
 app.use("/api/cart", cartRouter);
 app.use("/api/order", orderRouter);
@@ -42,4 +43,10 @@ app.get("/", (req, res) => {
   res.send("API Working");
 });
 
-app.listen(port, () => console.log("Server started on PORT : " + port));
+// Error handling middleware (add this last, after all routes)
+app.use(errorHandler);
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+  connectDB();
+});

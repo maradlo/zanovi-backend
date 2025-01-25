@@ -213,20 +213,82 @@ const updateUserAddress = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id;
 
-    await userModel.findByIdAndUpdate(userId, {
-      name,
-      lastName,
-      street,
-      city,
-      country,
-      phone,
-      zip,
-    });
+    // First check if user exists
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.json({ success: false, message: "User not found" });
+    }
 
-    res.json({ success: true, message: "Address updated successfully." });
+    // Update user with new address details
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      {
+        name,
+        lastName,
+        street,
+        city,
+        country,
+        phone,
+        zip,
+      },
+      { new: true } // This option returns the updated document
+    );
+
+    if (!updatedUser) {
+      return res.json({ success: false, message: "Failed to update address" });
+    }
+
+    res.json({
+      success: true,
+      message: "Address updated successfully",
+      address: {
+        name: updatedUser.name,
+        lastName: updatedUser.lastName,
+        street: updatedUser.street,
+        city: updatedUser.city,
+        country: updatedUser.country,
+        phone: updatedUser.phone,
+        zip: updatedUser.zip,
+      },
+    });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: "Failed to update address." });
+  }
+};
+
+// Add this new function to get user address
+const getUserAddress = async (req, res) => {
+  try {
+    console.log("Getting user address...");
+    const token = req.headers.token;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.id;
+    const user = await userModel.findById(userId);
+
+    if (!user) {
+      console.log("User not found");
+      return res.json({ success: false, message: "User not found." });
+    }
+
+    const userData = {
+      email: user.email || "",
+      address: {
+        name: user.name || "",
+        lastName: user.lastName || "",
+        street: user.street || "",
+        city: user.city || "",
+        country: user.country || "",
+        phone: user.phone || "",
+        zip: user.zip || "",
+      },
+    };
+
+    console.log("Sending user data:", userData);
+    res.json({ success: true, ...userData });
+  } catch (error) {
+    console.error("Error in getUserAddress:", error);
+    res.json({ success: false, message: "Failed to fetch user data." });
   }
 };
 
@@ -238,4 +300,5 @@ export {
   updatePassword,
   forgotPassword,
   updateUserAddress,
+  getUserAddress,
 };
